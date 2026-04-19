@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Activity Line (Blue) -->
+  <path d="M22 12H18L15 21L9 3L6 12H2" stroke="#2563EB" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Trending Up Arrow (Green) -->
+  <path d="M29 6L19.5 15.5L14.5 10.5L10 15" stroke="#22C55E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M23 6H29V12" stroke="#22C55E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
