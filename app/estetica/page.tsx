@@ -3,8 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle2, XCircle, MapPin, Globe, BarChart3, ArrowRight, Star } from "lucide-react"
+import { CheckCircle2, XCircle, ArrowRight, Star } from "lucide-react"
 import { LeadQuiz } from "@/components/lead-quiz"
 
 const WA_LINK =
@@ -108,6 +107,219 @@ function GoldParticles() {
   }, [])
   
   return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-[1] pointer-events-none" />
+}
+
+const NODE_LABELS = [
+  ["Google", "Meu Negócio"],
+  ["Site", "Profissional"],
+  ["Avaliações", "Reais"],
+  ["Fotos", "Atrativas"],
+  ["Agenda", "Cheia"],
+]
+
+function BrainCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const rafRef = useRef<number>(0)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    // --- State ---
+    type Particle = { t: number }
+    const particles: Particle[][] = NODE_LABELS.map((_, i) => [
+      { t: (i / 5) % 1 },
+      { t: ((i / 5) + 0.5) % 1 },
+    ])
+    const linePhases = NODE_LABELS.map((_, i) => i * (Math.PI * 2 / 5))
+    type Wave = { r: number; maxR: number }
+    const waves: Wave[] = []
+    let lastWaveTs = 0
+    let hoveredNode = -1
+
+    // --- Resize ---
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = canvas.offsetWidth * dpr
+      canvas.height = canvas.offsetHeight * dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    resize()
+    window.addEventListener("resize", resize)
+
+    // --- Layout helpers ---
+    const getLayout = () => {
+      const w = canvas.offsetWidth
+      const h = canvas.offsetHeight
+      const mobile = w < 768
+      return {
+        cx: w / 2,
+        cy: h / 2,
+        orbit: mobile ? 120 : 180,
+        centerR: mobile ? 32 : 52,
+        nodeR: mobile ? 26 : 38,
+        fontSize: mobile ? 9 : 11,
+        labelFontSize: mobile ? 11 : 14,
+      }
+    }
+
+    const getPositions = (cx: number, cy: number, orbit: number) =>
+      NODE_LABELS.map((_, i) => {
+        const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5
+        return { x: cx + orbit * Math.cos(a), y: cy + orbit * Math.sin(a) }
+      })
+
+    const drawLines = (lines: string[], x: number, y: number, size: number, color: string) => {
+      ctx.fillStyle = color
+      ctx.font = `600 ${size}px sans-serif`
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      const lh = size * 1.35
+      const top = y - ((lines.length - 1) * lh) / 2
+      lines.forEach((l, i) => ctx.fillText(l, x, top + i * lh))
+    }
+
+    // --- Main loop ---
+    const animate = (ts: number) => {
+      const { cx, cy, orbit, centerR, nodeR, fontSize, labelFontSize } = getLayout()
+      const pos = getPositions(cx, cy, orbit)
+      const t = ts / 1000
+
+      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight)
+
+      // Emit sonar wave every 2.5s
+      if (ts - lastWaveTs > 2500) {
+        waves.push({ r: centerR, maxR: centerR + 90 })
+        lastWaveTs = ts
+      }
+
+      // Draw waves
+      for (let i = waves.length - 1; i >= 0; i--) {
+        waves[i].r += 1.1
+        const progress = (waves[i].r - centerR) / (waves[i].maxR - centerR)
+        if (progress >= 1) { waves.splice(i, 1); continue }
+        const opacity = 0.55 * (1 - progress)
+        ctx.beginPath()
+        ctx.arc(cx, cy, waves[i].r, 0, Math.PI * 2)
+        ctx.strokeStyle = `rgba(201,169,110,${opacity})`
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      }
+
+      // Secondary lines (pentagon outline between adjacent nodes)
+      for (let i = 0; i < 5; i++) {
+        const j = (i + 1) % 5
+        ctx.beginPath()
+        ctx.moveTo(pos[i].x, pos[i].y)
+        ctx.lineTo(pos[j].x, pos[j].y)
+        ctx.strokeStyle = "rgba(201,169,110,0.08)"
+        ctx.lineWidth = 1
+        ctx.stroke()
+      }
+
+      // Primary connections + particles
+      pos.forEach((np, i) => {
+        const lineOpacity = 0.15 + 0.25 * (0.5 + 0.5 * Math.sin(t * 1.4 + linePhases[i]))
+        ctx.beginPath()
+        ctx.moveTo(cx, cy)
+        ctx.lineTo(np.x, np.y)
+        ctx.strokeStyle = `rgba(201,169,110,${lineOpacity})`
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+
+        const speed = hoveredNode === i ? 0.008 : 0.004
+        particles[i].forEach(p => {
+          p.t = (p.t + speed) % 1
+          const px = cx + (np.x - cx) * p.t
+          const py = cy + (np.y - cy) * p.t
+          let alpha = 1
+          if (p.t < 0.2) alpha = p.t / 0.2
+          else if (p.t > 0.8) alpha = (1 - p.t) / 0.2
+          ctx.beginPath()
+          ctx.arc(px, py, 3, 0, Math.PI * 2)
+          ctx.fillStyle = `rgba(201,169,110,${alpha})`
+          ctx.fill()
+        })
+      })
+
+      // Satellite nodes
+      pos.forEach((np, i) => {
+        const hovered = hoveredNode === i
+        const scale = hovered ? 1.15 : 1
+        const r = nodeR * scale
+
+        ctx.save()
+        ctx.translate(np.x, np.y)
+        if (hovered) { ctx.shadowColor = "#C9A96E"; ctx.shadowBlur = 18 }
+        ctx.beginPath()
+        ctx.arc(0, 0, r, 0, Math.PI * 2)
+        ctx.fillStyle = "#111111"
+        ctx.fill()
+        ctx.strokeStyle = hovered ? "rgba(201,169,110,1)" : "rgba(201,169,110,0.85)"
+        ctx.lineWidth = hovered ? 2.5 : 1.5
+        ctx.stroke()
+        ctx.restore()
+
+        drawLines(NODE_LABELS[i], np.x, np.y, fontSize, "#ffffff")
+      })
+
+      // Center node (pulse scale 1.0 → 1.08 → 1.0 per 2s)
+      const cs = 1 + 0.04 * (1 - Math.cos(Math.PI * t))
+      const cr = centerR * cs
+
+      // Radial glow behind center
+      const grd = ctx.createRadialGradient(cx, cy, cr * 0.5, cx, cy, cr * 1.6)
+      grd.addColorStop(0, "rgba(201,169,110,0.18)")
+      grd.addColorStop(1, "rgba(201,169,110,0)")
+      ctx.beginPath()
+      ctx.arc(cx, cy, cr * 1.6, 0, Math.PI * 2)
+      ctx.fillStyle = grd
+      ctx.fill()
+
+      ctx.save()
+      ctx.shadowColor = "#C9A96E"
+      ctx.shadowBlur = 22
+      ctx.beginPath()
+      ctx.arc(cx, cy, cr, 0, Math.PI * 2)
+      ctx.fillStyle = "#C9A96E"
+      ctx.fill()
+      ctx.restore()
+
+      drawLines(["AlavancaMed"], cx, cy, labelFontSize, "#ffffff")
+
+      rafRef.current = requestAnimationFrame(animate)
+    }
+
+    rafRef.current = requestAnimationFrame(animate)
+
+    // Mouse interaction
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
+      const { cx, cy, orbit, nodeR } = getLayout()
+      const pos = getPositions(cx, cy, orbit)
+      hoveredNode = -1
+      pos.forEach((np, i) => {
+        const d = Math.hypot(mx - np.x, my - np.y)
+        if (d < nodeR * 1.3) hoveredNode = i
+      })
+      canvas.style.cursor = hoveredNode >= 0 ? "pointer" : "default"
+    }
+
+    canvas.addEventListener("mousemove", onMouseMove)
+    canvas.addEventListener("mouseleave", () => { hoveredNode = -1 })
+
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      window.removeEventListener("resize", resize)
+      canvas.removeEventListener("mousemove", onMouseMove)
+    }
+  }, [])
+
+  return <canvas ref={canvasRef} className="w-full" style={{ height: "500px" }} />
 }
 
 export default function EsteticaPage() {
@@ -336,47 +548,9 @@ export default function EsteticaPage() {
               </p>
             </div>
 
-            {/* 3 Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
-              
-              {/* Card 1 - Google Meu Negócio */}
-              <Card className="reveal bg-[#fafafa] shadow-md hover:shadow-xl transition-shadow border border-[#e8e0d8]">
-                <CardContent className="p-5 md:p-8 space-y-3 md:space-y-4">
-                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-[rgba(201,169,110,0.15)] flex items-center justify-center">
-                    <MapPin className="h-6 w-6 md:h-7 md:w-7 text-[#C9A96E]" />
-                  </div>
-                  <h3 className="text-lg md:text-2xl font-bold text-[#0a0a0a]">Google Meu Negócio</h3>
-                  <p className="text-sm md:text-base text-[#666] leading-relaxed">
-                    Perfil com fotos profissionais, avaliações organizadas, descrição estratégica e atualização constante.
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Card 2 - Site Profissional */}
-              <Card className="reveal bg-[#fafafa] shadow-md hover:shadow-xl transition-shadow border border-[#e8e0d8]">
-                <CardContent className="p-5 md:p-8 space-y-3 md:space-y-4">
-                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-[rgba(201,169,110,0.15)] flex items-center justify-center">
-                    <Globe className="h-6 w-6 md:h-7 md:w-7 text-[#C9A96E]" />
-                  </div>
-                  <h3 className="text-lg md:text-2xl font-bold text-[#0a0a0a]">Site Profissional</h3>
-                  <p className="text-sm md:text-base text-[#666] leading-relaxed">
-                    Transmite autoridade e confiança para quem está decidindo entre você e outra clínica.
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Card 3 - Estrutura Digital */}
-              <Card className="reveal bg-[#fafafa] shadow-md hover:shadow-xl transition-shadow border border-[#e8e0d8]">
-                <CardContent className="p-5 md:p-8 space-y-3 md:space-y-4">
-                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-[rgba(201,169,110,0.15)] flex items-center justify-center">
-                    <BarChart3 className="h-6 w-6 md:h-7 md:w-7 text-[#C9A96E]" />
-                  </div>
-                  <h3 className="text-lg md:text-2xl font-bold text-[#0a0a0a]">Estrutura Digital Completa</h3>
-                  <p className="text-sm md:text-base text-[#666] leading-relaxed">
-                    Um sistema de atração que funciona 24 horas por dia, mesmo quando você está atendendo.
-                  </p>
-                </CardContent>
-              </Card>
+            {/* Brain Canvas */}
+            <div className="reveal">
+              <BrainCanvas />
             </div>
           </div>
         </section>
